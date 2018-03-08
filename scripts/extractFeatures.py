@@ -74,14 +74,20 @@ if __name__ == '__main__': #if this is being run as the main program (ie. not ca
     timeSeries = np.sum(waterfall, axis=1)
     #timeSeries = timeSeries[startIdx:endIdx]
         
+#    if not (opts.meta is None):
+#        if os.path.isfile(opts.meta) == True:
+#            metaData = pickle.load(open(opts.meta, "rb"))
+#        #else:
+#            #metaData = {}
+#            #pickle.dump(metaData, open(opts.meta, "wb"))
+#    else:
+#            metaData = {}
+            
+    
     if not (opts.meta is None):
-        if os.path.isfile(opts.meta) == True:
-            metaData = pickle.load(open(opts.meta, "rb"))
-        else:
-            metaData = {}
-            pickle.dump(metaData, open(opts.meta, "wb"))
+        metaData = pickle.load(open(opts.meta, "rb"))
     else:
-            metaData = {}
+        metaData = {}
 
             
     #######################
@@ -127,16 +133,23 @@ if __name__ == '__main__': #if this is being run as the main program (ie. not ca
         #KS test uses 0 mean and 1 variance, data is already roughly centered around 0, so need to recenter distribution and make variance 1. Is this not using a circular argument as i must assume normal dist to calculate variance??
         arrnorm = (arr-arr.mean())/arr.std()
         ks = scipy.stats.kstest(arrnorm,'norm')
+        
+        #Shapiro-Wilks Test
+        sw = scipy.stats.shapiro(arr)
+        swp = sw[0]
+        swa = sw[1]
                                 
-        return { 'kurtosis': kurtosis, 'skew': skew, 'dpearsonomni': dpearsonomni, 'dpearsonp': dpearsonp, 'lsD': lsD, 'lsp': lsp, 'ks': ks }
+        return { 'kurtosis': kurtosis, 'skew': skew, 'dpearsonomni': dpearsonomni, 'dpearsonp': dpearsonp, 'lsD': lsD, 'lsp': lsp, 'ks': ks, 'swp' : swp, 'swa' : swa }
     
     metaData['GaussianTests'] = GaussianTests(timeSeries)
+    metaData['ddGaussianTests'] = GaussianTests(ddTimeSeries)
     
     def segGaussianTests(arr):
         #splits segments into ~max pulsar pulse width (not sure what this actually is? related to dm but how, intrinsic width must also play a part?)
         nseg = 8 #guessed based on pulsar width in example
         segSize = arr.shape[0] / nseg #how many elements in each segment
         dpearson = np.empty([nseg,2])
+        sw = np.empty([nseg,2])
 
         #takes sidth segment and assigns value for that segment to sidth element of value array
         #put KS testing in here too?
@@ -149,21 +162,29 @@ if __name__ == '__main__': #if this is being run as the main program (ie. not ca
             dpearson[sid] = np.asarray(scipy.stats.normaltest(segarr))
             lilliefors = np.asarray(statsmodels.stats.diagnostic.kstest_normal(segarr, pvalmethod='approx')) #can you store arrays inside arrays?
             if lilliefors[1] > 0.1:
-                lfpsum += 1
+                lfpsum += 1 #total number of segments with p>0.1
             if lilliefors[1] > lfpmax:
                 lfpmax= lilliefors[1]
             if lilliefors[0] > lfDmax:
                 lfDmax = lilliefors[0]
             if lilliefors[0] < lfDmin:
                 lfDmin = lilliefors[0]
+            
+            sw[sid] = scipy.stats.shapiro(segarr)
+         
+                      
+        swsum = np.sum(sw, axis=0)
+        swpsum = swsum[0]
+        swasum = swsum[1]
                                 
         dpearsonsum = np.sum(dpearson, axis=0)
         dpearsonomnisum = dpearsonsum[0]
         dpearsonpsum = dpearsonsum[1]
     
-        return { 'lillieforsmaxp': lfpmax, 'lillieforsmaxD': lfDmax, 'lfDmin': lfDmin, 'lillieforssum': lfpsum, 'dpearson': dpearson, 'dpearsonomnisum': dpearsonomnisum, 'dpearsonpsum': dpearsonpsum}
+        return { 'lillieforsmaxp': lfpmax, 'lillieforsmaxD': lfDmax, 'lfDmin': lfDmin, 'lillieforssum': lfpsum, 'dpearson': dpearson, 'dpearsonomnisum': dpearsonomnisum, 'dpearsonpsum': dpearsonpsum, 'swpsum' : swpsum, 'swasum' : swasum}
     
     metaData['segGaussianTests'] = segGaussianTests(timeSeries)
+    metaData['ddsegGaussianTests'] = segGaussianTests(ddTimeSeries)
     
     def windowedStats(arr, nseg=16):
         """Statistics on segments of an array"""
@@ -184,8 +205,34 @@ if __name__ == '__main__': #if this is being run as the main program (ie. not ca
             stdVals[sid] = np.std(arr[segSize*sid:segSize*(sid+1)])
             if np.isclose(stdVals[sid], 0): snrVals[sid] = 0.
             else: snrVals[sid] = maxVals[sid] / stdVals[sid]
-
-        return { 'min': minVals, 'max': maxVals, 'mean': meanVals, 'std': stdVals, 'snr': snrVals }
+                
+        minsum = np.sum(minVals)
+        minmin = np.amin(minVals)
+        maxmin = np.amax(minVals)
+        rangemin = (maxmin-minmin)
+        
+        maxsum = np.sum(maxVals)
+        minmax = np.amin(maxVals)
+        maxmax = np.amax(maxVals)
+        rangemax = (maxmax-minmax)
+        
+        minmean = np.amin(meanVals)
+        maxmean = np.amax(meanVals)
+        meansum = np.sum(meanVals)
+        rangemean = (maxmean-minmean)
+        
+        minstd = np.amin(stdVals)
+        maxstd = np.amax(stdVals)
+        meanstd = np.sum(stdVals)
+        rangestd = (maxstd-minstd)
+        
+        minsnr = np.amin(snrVals)
+        maxsnr = np.amax(snrVals)
+        meansnr = np.sum(snrVals)
+        rangesnr = (maxsnr-minsnr)
+        
+        
+        return { 'min': minVals, 'max': maxVals, 'mean': meanVals, 'std': stdVals, 'snr': snrVals, 'minsum' : minsum, 'minmin' : minmin, 'maxmin' : maxmin, 'rangemin' : rangemin, 'maxsum' : maxsum, 'minmax' : minmax, 'maxmax' : maxmax, 'rangemax' : rangemax,  'meansum': meansum, 'minmean' : minmean, 'maxmean' : maxmean, 'rangemean' : rangemean, 'minsnr':minsnr, 'maxsnr':maxsnr, 'meansnr':meansnr, 'rangesnr':rangesnr }
 
     metaData['windTimeStats'] = windowedStats(timeSeries)
     metaData['windDedispTimeStats'] = windowedStats(ddTimeSeries)
@@ -207,7 +254,7 @@ if __name__ == '__main__': #if this is being run as the main program (ie. not ca
 
  
     def longestRun(arr, ddarr):
-        """Longest run of a constant value in a 1-D array, check for a phantom peak and return its indices"""
+        """Longest run of a constant value in a 1-D array"""
         maxRun = 1
         maxVal = -1.
         currentRun = 1
@@ -234,12 +281,6 @@ if __name__ == '__main__': #if this is being run as the main program (ie. not ca
                     ddmaxVal = int(ddarr[idx-1])
                 else:
                     currentRun = 1
-         
-        """if ddmaxRun == maxRun:
-            phpeak = True
-        else:
-            phpeak = False"""
-        
      
         return { 'maxRun': maxRun, 'maxVal': maxVal, 'maxRunpct': maxRun / float(arr.size), 'ddmaxRun': ddmaxRun, 'ddmaxVal': ddmaxVal}
     
@@ -268,15 +309,62 @@ if __name__ == '__main__': #if this is being run as the main program (ie. not ca
                 minVals[tid,cid] = arr[timeSize*tid:timeSize*(tid+1), chanSize*cid:chanSize*(cid+1)].min()
                 maxVals[tid,cid] = arr[timeSize*tid:timeSize*(tid+1), chanSize*cid:chanSize*(cid+1)].max()
                 meanVals[tid,cid] = arr[timeSize*tid:timeSize*(tid+1), chanSize*cid:chanSize*(cid+1)].mean()
+                                
         
-        return { 'min': minVals, 'max': maxVals, 'mean': meanVals}
+        minmedian = np.median(minVals)
+        minsum = np.sum(minVals)
+        minmin = np.amin(minVals)
+        maxmin = np.amax(minVals)
+        rangemin = (maxmin-minmin)
+        
+        maxmedian = np.median(maxVals)
+        maxsum = np.sum(maxVals)
+        minmax = np.amin(maxVals)
+        maxmax = np.amax(maxVals)
+        rangemax = (maxmax-minmax)
+        
+        meanmedian = np.median(meanVals)
+        minmean = np.amin(meanVals)
+        maxmean = np.amax(meanVals)
+        meansum = np.sum(meanVals)
+        rangemean = (maxmean-minmean)
+        
+        
+        return { 'min': minVals, 'max': maxVals, 'mean': meanVals, 'minsum' : minsum, 'minmin' : minmin, 'maxmin' : maxmin, 'rangemin' : rangemin, 'maxsum' : maxsum, 'minmax' : minmax, 'maxmax' : maxmax, 'rangemax' : rangemax,  'meansum': meansum, 'minmean' : minmean, 'maxmean' : maxmean, 'rangemean' : rangemean, 'minmedian':minmedian, 'maxmedian':maxmedian, 'meanmedian':meanmedian}
 
     metaData['pixels'] = pixelizeSpectrogram(waterfall)
     
+    def AveragePulseMetrics(ddarr):
+        slicepulse=np.load('/home/inigo/slicepulse.npy')
+        argmax = np.argmax(ddarr)
+            ddarrslice = ddar[argmax-2050:argmax+2050]
+            if ddarslice.shape == slicepulse:
+                corrarr = np.correlate(slicepulse, ddarrslice)
+            else: corrarr = -1
+        
+        """TOO COMPUTATIONALLY INTENSIVE, REPLACED WITH CROSS CORRELATION OF IMPORTANT SEGMENT OF TIME SERIES
+        avgpulse = np.load('/home/inigo/eigenpulse.npy')
+        #print 'eigenpulse has shape:' + str(eigenpulse.shape)
+        #print 'dedispersed time series has shape:' + str(arr.shape)
+        if avgpulse.shape == arr.shape:
+            arr = np.sort(arr)
+            D = abs((avgpulse - arr))
+            Dmax = np.amax(D)
+            Dsum = np.sum(D)
+        else:
+            D = arr.shape
+            Dmax = -1
+            Dsum = -1"""
+        
+        return {"""'D': D, 'Dmax' : Dmax, 'Dsum' : Dsum""" 'corrarr':corrarr }
     
-
+    metaData['AveragePulseMetrics'] = AveragePulseMetrics(ddTimeSeries)
+    
+    
     if not (opts.meta is None):
-        pickle.dump(metaData, open(opts.meta, "wb")) #saves the metadata dictionary file as .pkl
-    """else:
-        print metaData;"""
+        output = open(opts.meta, "wb")
+        pickle.dump(metaData, output)
+        output.close()#saves the metadata dictionary file as .pkl
+    else:
+        print metaData;
 
